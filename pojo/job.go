@@ -11,6 +11,7 @@ type Job struct {
 	Degree string
 	Tags []string
 	Describe string
+	Url string
 	Company
 }
 
@@ -24,8 +25,8 @@ type Company struct {
 
 func (j Job) String() string {
 	return fmt.Sprintf(
-		"{\n\tName: %s\n\tUpdate: %s\n\tSalary: %s\n\tPostion: %s\n\tExperience: %s\n\tDegree: %s\n\tTags: %s\n\tDescribe: %s\n\tCompany: %s\n}",
-		j.Name, j.Update, j.Salary, j.Postion, j.Experience, j.Degree, j.Tags, j.Describe, j.Company,
+		"{\n\tName: %s\n\tUpdate: %s\n\tSalary: %s\n\tPostion: %s\n\tExperience: %s\n\tDegree: %s\n\tTags: %s\n\tDescribe: %s\n\tUrl: %s\n\tCompany: %s\n}",
+		j.Name, j.Update, j.Salary, j.Postion, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, j.Company,
 	)
 }
 

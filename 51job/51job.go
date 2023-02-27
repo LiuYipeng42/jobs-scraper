@@ -13,10 +13,10 @@ import (
 
 func switchCity(chrome utils.ChromeSerADri, city int) {
 	t := time.Now()
-	allCity := chrome.WaitAndFindOne("div.allcity", 5)
+	allCity := chrome.WaitAndFindOne("div.allcity", 5, 1)
 	allCity.Click()
 
-	table := chrome.WaitAndFindOne("div.el-dialog", 5)
+	table := chrome.WaitAndFindOne("div.el-dialog", 5, 1)
 
 	citys, _ := table.FindElements(selenium.ByCSSSelector, "div.grid-item>span")
 	citys[city].Click()
@@ -35,11 +35,7 @@ func getInfo(html string) (job pojo.Job) {
 	update := utils.RegExpFindOne(html, "class=\"time\">.*?</span>")
 	job.Update = update[13:len(update)-7]
 
-	salary := utils.RegExpFindOne(html, "class=\"sal\">.*?</span>")
-	job.Salary = salary[12:len(salary) - 7]
-
 	jobInfo := strings.Split(utils.RegExpFindOne(html, "class=\"info\">.*?</p>"), "<span")
-
 	job.Salary = jobInfo[1][32:len(jobInfo[1])-7]
 	job.Postion = jobInfo[3][20:len(jobInfo[3])-7]
 	if len(jobInfo) > 5 {
@@ -64,21 +60,17 @@ func getInfo(html string) (job pojo.Job) {
 		job.Company.CSize = CInfo[1]
 	}
 
-	data := utils.RegExpFindOne(html, "class=\"int at\">.*?</p>")
-	job.MainBusiness = strings.Split(data[15:len(data) - 4], "/")
+	business := utils.RegExpFindOne(html, "class=\"int at\">.*?</p>")
+	job.MainBusiness = strings.Split(business[15:len(business) - 4], "/")
 
 	fmt.Println(job.Name)
 
 	return
 }
 
-func saveJobInfo(firstCity, lastCity int) {
-	chrome := utils.InitDriver("./chromedriver", 8080, false)
-	wd := chrome.Webdriver
-	defer chrome.Service.Stop()
-	defer wd.Quit()
+func saveJobInfo(chrome utils.ChromeSerADri, firstCity, lastCity int) {
 
-	wd.Get("https://we.51job.com/pc/search")
+	chrome.Webdriver.Get("https://we.51job.com/pc/search")
 
 	city := firstCity
 	switchCity(chrome, city)
@@ -86,6 +78,7 @@ func saveJobInfo(firstCity, lastCity int) {
 	pageNum := 0
 	for {
 		jobs := chrome.WaitAndFindAll("div.j_joblist>div[sensorsname]", 5)
+		fmt.Println(len(jobs))
 
 		for _, job := range jobs {
 			fmt.Printf("%d %d ", city, pageNum)
@@ -93,10 +86,10 @@ func saveJobInfo(firstCity, lastCity int) {
 			getInfo(html)
 		}
 
-		pageNumS, _ := chrome.WaitAndFindOne("li.number.active", 2).Text()
+		pageNumS, _ := chrome.WaitAndFindOne("li.number.active", 2, 1).Text()
 		pageNum, _ = strconv.Atoi(pageNumS)
 		if pageNum < 200 {
-			chrome.WaitAndFindOne("button.btn-next", 5).Click()
+			chrome.WaitAndFindOne("button.btn-next", 5, 1).Click()
 		} else {
 			city += 1
 			if city > lastCity {
@@ -104,25 +97,33 @@ func saveJobInfo(firstCity, lastCity int) {
 			}
 			switchCity(chrome, city)
 		}
-		time.Sleep(100 * time.Second)
 	}
 }
 
 func main() {
+
+	// chrome := utils.InitClientByDriver("./chromedriver", 8080, true)
+	// wd := chrome.Webdriver
+	// defer chrome.Service.Stop()
+	// defer wd.Quit()
+
+	chrome := utils.InitClientByRemote("http://172.17.0.2:4444")
+	wd := chrome.Webdriver
+	defer wd.Quit()
 
 	var wg sync.WaitGroup
 
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(first, last int) {
-			saveJobInfo(first, last)
+			saveJobInfo(chrome, first, last)
 			wg.Done()
 		}(80 * i, 80 * i + 80)
 	}
 
 	wg.Add(1)
 	go func() {
-		saveJobInfo(400, 430)
+		saveJobInfo(chrome, 400, 430)
 		wg.Done()
 	}()
 
