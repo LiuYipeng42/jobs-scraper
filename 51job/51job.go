@@ -32,8 +32,8 @@ func getInfo(html string) (job pojo.Job) {
 	name := utils.RegExpFindOne(html, "title=.*?class=\"jname at\"")
 	job.Name = name[7:len(name)-18]
 
-	update := utils.RegExpFindOne(html, "class=\"time\">.*?</span>")
-	job.Update = update[13:len(update)-7]
+	// update := utils.RegExpFindOne(html, "class=\"time\">.*?</span>")
+	// job.Update = update[13:len(update)-7]
 
 	jobInfo := strings.Split(utils.RegExpFindOne(html, "class=\"info\">.*?</p>"), "<span")
 	job.Salary = jobInfo[1][32:len(jobInfo[1])-7]
