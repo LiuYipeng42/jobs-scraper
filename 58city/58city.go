@@ -187,6 +187,7 @@ func visitJobUrl(chrome utils.ChromeSerADri, baseUrl string, firstPage, lastPage
 			antiBotClickCheck(chrome, url)
 		} else {
 			nextJobType(chrome)
+			pageNum = firstPage
 		}
 
 	}
