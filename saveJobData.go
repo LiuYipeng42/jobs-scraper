@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
+	"pojo"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/nsqio/go-nsq"
-	"log"
-	"pojo"
 )
 
 var db *sqlx.DB
@@ -91,11 +92,13 @@ func process(message *nsq.Message) error {
 		}
 
 		r, err = db.Exec(insertJobSql, job.CName, job.Salary, job.Position, job.Experience, job.Degree, job.Tags, job.Describe, job.Url, id)
-		id, _ = r.LastInsertId()
-		fmt.Println("insert job: ", id, job.Name, job.CName)
-		if err != nil {
-			fmt.Println(r, err)
+		if err == nil {
+			id, _ = r.LastInsertId()
+			fmt.Println("insert job: ", id, job.Name, job.CName)
+		} else {
+			fmt.Println(err)
 		}
+
 	}
 
 	return nil

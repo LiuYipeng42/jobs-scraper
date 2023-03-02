@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	// "encoding/json"
 	"fmt"
 	"log"
 	"pojo"
@@ -89,24 +89,23 @@ func saveJobInfo(chrome utils.ChromeSerADri, firstCity, lastCity int) {
 	pageNum := 0
 	for {
 		jobs := chrome.WaitAndFindAll("div.j_joblist>div[sensorsname]", 5)
-		fmt.Println(len(jobs))
+		fmt.Printf("city: %d page: %d jobs: %d\n", city, pageNum, len(jobs))
 
 		for _, job := range jobs {
-			fmt.Printf("%d %d ", city, pageNum)
 			html, _ := job.GetAttribute("outerHTML")
 			job := getInfo(html)
 			fmt.Println(job.Name)
 
-			jobJson, _ := json.Marshal(job)
-			if err := producer.Publish("jobs", jobJson); err != nil {
-				log.Fatal("publish error: " + err.Error())
-			}
+			// jobJson, _ := json.Marshal(job)
+			// if err := producer.Publish("jobs", jobJson); err != nil {
+			// 	log.Fatal("publish error: " + err.Error())
+			// }
 
 		}
 
 		pageNumS, _ := chrome.WaitAndFindOne("li.number.active", 2, 1).Text()
 		pageNum, _ = strconv.Atoi(pageNumS)
-		if pageNum < 200 {
+		if pageNum < 50 {
 			chrome.WaitAndFindOne("button.btn-next", 5, 1).Click()
 		} else {
 			city += 1
@@ -131,34 +130,32 @@ func init() {
 
 func main() {
 
-	chrome := utils.InitClientByDriver("./chromedriver", 8080, false)
-	wd := chrome.Webdriver
-	defer chrome.Service.Stop()
-	defer wd.Quit()
-
 	var wg sync.WaitGroup
 
-	// for i := 0; i < 1; i++ {
-	// 	wg.Add(1)
-	// 	go func(first, last int) {
-	// 		chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
-	// 		wd := chrome.Webdriver
-	// 		defer wd.Quit()
+	// 432 citys
+	first := 0
+	last := 0
+	for batch := 1; batch <= 9; batch++ {
+		first = 50 * (batch - 1)
+		last = first + 50
+		if batch == 9 {
+			last = first + 32
+		}
 
-	// 		saveJobInfo(chrome, first, last)
-	// 		wg.Done()
-	// 	}(80 * i, 80 * i + 80)
-	// }
+		wg.Add(1)
+		go func(first, last int) {
+			chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
+			wd := chrome.Webdriver
+			defer wd.Quit()
 
-	wg.Add(1)
-	go func() {
-		// chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
-		// wd := chrome.Webdriver
-		// defer wd.Quit()
+			saveJobInfo(chrome, first, last)
+			wg.Done()
+		}(first, last)
 
-		saveJobInfo(chrome, 400, 430)
-		wg.Done()
-	}()
+		if batch % 2 == 0 {
+			wg.Wait()
+		}
+	}
 
 	wg.Wait()
 }

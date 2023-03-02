@@ -88,9 +88,8 @@ func TestMysql(t *testing.T) {
 	// 	fmt.Println(r, err)
 	// }
 
-	// company := pojo.Company{}
-	var company []pojo.Company
-	db.Select(&company, "select id as cid from companys where name = ?", "上海金蝶网络科技有限公司")
+	var company pojo.Company
+	db.Select(&company, "select id as cid from company where name = ?", "上海金蝶网络科技有限公司")
 
-	fmt.Println(company[0].CId)
+	fmt.Println(company.CId)
 }
