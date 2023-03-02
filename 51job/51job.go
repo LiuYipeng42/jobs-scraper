@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log"
 	"pojo"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"utils"
+
+	"github.com/nsqio/go-nsq"
 	"github.com/tebeka/selenium"
 )
 
@@ -37,7 +42,8 @@ func getInfo(html string) (job pojo.Job) {
 
 	jobInfo := strings.Split(utils.RegExpFindOne(html, "class=\"info\">.*?</p>"), "<span")
 	job.Salary = jobInfo[1][32:len(jobInfo[1])-7]
-	job.Postion = jobInfo[3][20:len(jobInfo[3])-7]
+	job.Position = jobInfo[3][20:len(jobInfo[3])-7]
+	job.Position = strings.ReplaceAll(job.Position, "·", "-")
 	if len(jobInfo) > 5 {
 		job.Experience = jobInfo[5][20:len(jobInfo[5])-7]
 		if len(jobInfo) > 7 {
@@ -45,10 +51,17 @@ func getInfo(html string) (job pojo.Job) {
 		}
 	}
 
-	tags := strings.Split(utils.RegExpFindOne(html, "class=\"tags\">.*?</p>"), "title=")[1:]
-	for _, tag := range tags {
-		job.Tags = append(job.Tags, tag[1:strings.Index(tag, ">")-1])
+	tagElems := strings.Split(utils.RegExpFindOne(html, "class=\"tags\">.*?</p>"), "title=")[1:]
+
+	var tagBuffer bytes.Buffer
+	for _, tag := range tagElems {
+		tagBuffer.WriteString(tag[1:strings.Index(tag, ">")-1] + " ")
 	}
+	job.Tags = tagBuffer.String()
+	job.Tags = job.Tags[:len(job.Tags)]
+
+	url := utils.RegExpFindOne(html, "<a .*? href=\".*?\" target=\"_blank\" class=\"el\">")
+	job.Url = url[strings.Index(url, "http"):len(url) - 29]
 
 	cname := utils.RegExpFindOne(html, "class=\"cname at\">.*?</a>")
 	job.CName = cname[17:len(cname) - 4]
@@ -61,9 +74,7 @@ func getInfo(html string) (job pojo.Job) {
 	}
 
 	business := utils.RegExpFindOne(html, "class=\"int at\">.*?</p>")
-	job.MainBusiness = strings.Split(business[15:len(business) - 4], "/")
-
-	fmt.Println(job.Name)
+	job.MainBusiness = strings.ReplaceAll(business[15:len(business) - 4], "/", " ")
 
 	return
 }
@@ -83,7 +94,14 @@ func saveJobInfo(chrome utils.ChromeSerADri, firstCity, lastCity int) {
 		for _, job := range jobs {
 			fmt.Printf("%d %d ", city, pageNum)
 			html, _ := job.GetAttribute("outerHTML")
-			getInfo(html)
+			job := getInfo(html)
+			fmt.Println(job.Name)
+
+			jobJson, _ := json.Marshal(job)
+			if err := producer.Publish("jobs", jobJson); err != nil {
+				log.Fatal("publish error: " + err.Error())
+			}
+
 		}
 
 		pageNumS, _ := chrome.WaitAndFindOne("li.number.active", 2, 1).Text()
@@ -100,29 +118,44 @@ func saveJobInfo(chrome utils.ChromeSerADri, firstCity, lastCity int) {
 	}
 }
 
+var producer *nsq.Producer
+
+func init() {
+	cfg := nsq.NewConfig()
+	var err error
+	producer, err = nsq.NewProducer("localhost:4150", cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 
-	// chrome := utils.InitClientByDriver("./chromedriver", 8080, true)
-	// wd := chrome.Webdriver
-	// defer chrome.Service.Stop()
-	// defer wd.Quit()
-
-	chrome := utils.InitClientByRemote("http://172.17.0.2:4444")
+	chrome := utils.InitClientByDriver("./chromedriver", 8080, false)
 	wd := chrome.Webdriver
+	defer chrome.Service.Stop()
 	defer wd.Quit()
 
 	var wg sync.WaitGroup
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(first, last int) {
-			saveJobInfo(chrome, first, last)
-			wg.Done()
-		}(80 * i, 80 * i + 80)
-	}
+	// for i := 0; i < 1; i++ {
+	// 	wg.Add(1)
+	// 	go func(first, last int) {
+	// 		chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
+	// 		wd := chrome.Webdriver
+	// 		defer wd.Quit()
+
+	// 		saveJobInfo(chrome, first, last)
+	// 		wg.Done()
+	// 	}(80 * i, 80 * i + 80)
+	// }
 
 	wg.Add(1)
 	go func() {
+		// chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
+		// wd := chrome.Webdriver
+		// defer wd.Quit()
+
 		saveJobInfo(chrome, 400, 430)
 		wg.Done()
 	}()

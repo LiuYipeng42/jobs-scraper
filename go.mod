@@ -16,5 +16,9 @@ require (
 require (
 	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
+	github.com/go-sql-driver/mysql v1.7.0 // indirect
+	github.com/golang/snappy v0.0.1 // indirect
+	github.com/jmoiron/sqlx v1.3.5 // indirect
+	github.com/nsqio/go-nsq v1.1.0 // indirect
 	golang.org/x/net v0.7.0 // indirect
 )

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log"
 	"pojo"
 	"strings"
 	"sync"
 	"time"
 	"utils"
 
+	"github.com/nsqio/go-nsq"
 	"github.com/tebeka/selenium"
 )
 
@@ -42,8 +46,9 @@ func antiBotLogin(chrome utils.ChromeSerADri) bool {
 
 func antiBotClickCheck(chrome utils.ChromeSerADri, url string) bool {
 
-	currentUrl, _ := chrome.Webdriver.CurrentURL()
-	if !strings.Contains(currentUrl, "antibot") {
+	check := chrome.WaitAndFindOne("input[value=点击按钮进行验证]", 1, 0.5)
+
+	if check == nil {
 		return false
 	}
 
@@ -53,23 +58,22 @@ func antiBotClickCheck(chrome utils.ChromeSerADri, url string) bool {
 		if check == nil {
 			return true
 		}
+		time.Sleep(1000 * time.Millisecond)
 		check.Click()
-		check.Click()
-		check.Click()
-		time.Sleep(2000 * time.Millisecond)
+		time.Sleep(1500 * time.Millisecond)
 		chrome.Webdriver.Get(url)
 		n += 1
 		if n == 5 {
 			fmt.Println("anti-antibot timeout!")
 			time.Sleep(5 * time.Second)
-			return true
 		}
-
 	}
 
 }
 
 func antiBot(chrome utils.ChromeSerADri, url string) {
+
+	// https://callback.58.com/antibot/deny.do?namespace=zhaopin_list_pc&serialID=9fc606871dd48050911342ddd1cf928d_62e113b8e3714a28be99e2e47f23cc1d
 
 	antiBotClickCheck(chrome, url)
 
@@ -77,9 +81,18 @@ func antiBot(chrome utils.ChromeSerADri, url string) {
 		login(chrome)
 	}
 
+	texte := chrome.WaitAndFindOne("h1.item", 2, 1)
+	if texte != nil {
+		text, _ := texte.Text()
+		if strings.Contains(text, "系统检测到您疑似使用网页抓取工具访问本网站") {
+			time.Sleep(10 * time.Second)
+			chrome.Webdriver.Get(url)
+		}	
+	}
+
 }
 
-func getInfo(html string, url string) (job pojo.Job) {
+func getInfo(html string) (job pojo.Job) {
 
 	name := utils.RegExpFindOne(html, "class=\"pos_title\">.*?</span>")
 	if len(name) == 0 {
@@ -104,7 +117,7 @@ func getInfo(html string, url string) (job pojo.Job) {
 		posBuffer.WriteString("/")
 	}
 	pos := posBuffer.String()
-	job.Postion = pos[:len(pos)-1]
+	job.Position = pos[:len(pos)-1]
 
 	experience := utils.RegExpFindOne(html, "<span class=\"item_condition border_right_None\">.*?</span>")
 	job.Experience = experience[48 : len(experience)-8]
@@ -112,12 +125,13 @@ func getInfo(html string, url string) (job pojo.Job) {
 	degree := utils.RegExpFindOne(html, "<span class=\"item_condition\">.*?</span>")
 	job.Degree = degree[29 : len(degree)-7]
 
-	temp := utils.RegExpFindAll(html, "<span class=\"pos_welfare_item\">.*?</span>")
-	var tags []string
-	for i := 0; i < len(temp); i++ {
-		tags = append(tags, temp[i][31:len(temp[i])-7])
+	tagElems := utils.RegExpFindAll(html, "<span class=\"pos_welfare_item\">.*?</span>")
+	var tagsBuffer bytes.Buffer
+	for i := 0; i < len(tagElems); i++ {
+		tagsBuffer.WriteString(tagElems[i][31:len(tagElems[i])-7] + " ")
 	}
-	job.Tags = tags
+	job.Tags = tagsBuffer.String()
+	job.Tags = job.Tags[:len(job.Tags)]
 
 	des := utils.RegExpFindOne(html, "<div class=\"des\">.*?</div>")
 	des = strings.ReplaceAll(des, "<br>", "")
@@ -137,12 +151,16 @@ func getInfo(html string, url string) (job pojo.Job) {
 	job.CSize = csize[31 : len(csize)-4]
 
 	business := utils.RegExpFindOne(html, "<a class=\"comp_baseInfo_link\".*?</a>")
-	job.MainBusiness = strings.Split(business[strings.Index(business, ">")+1:len(business)-4], "/")
+	job.MainBusiness = strings.ReplaceAll(business[strings.Index(business, ">")+1:len(business)-4], "/", " ")
 
-	cdes := strings.ReplaceAll(utils.RegExpFindOne(html, "<div class=\"comIntro\">.*?</p>"), " ", "")
+	cdes := utils.RegExpFindOne(html, "<div class=\"comIntro\".*?</p>")
+
 	if len(cdes) > 0 {
-		job.CDescribe = cdes[60 : len(cdes)-4]
+		cdes = cdes[strings.Index(cdes, "<p>") + 3:len(cdes) - 4]
 	}
+	cdes = strings.ReplaceAll(cdes, " ", "")
+	cdes = strings.ReplaceAll(cdes, "<br>", "")
+	job.CDescribe = cdes
 
 	return
 }
@@ -161,48 +179,70 @@ func visitJobUrl(chrome utils.ChromeSerADri, baseUrl string, firstPage, lastPage
 
 		for _, job := range jobs {
 			t := time.Now()
-
 			linke, _ := job.FindElement(selenium.ByCSSSelector, "div.job_name.clearfix>a[href]")
-			// fmt.Println(linke.Text())
 			url, _ := linke.GetAttribute("href")
 			linke.Click()
+			// fmt.Println(linke.Text())
 
-			handle, _ := wd.WindowHandles()
-			wd.SwitchWindow(handle[1])
+			handles, _ := wd.WindowHandles()
+			wd.SwitchWindow(handles[1])
 
 			antiBotClickCheck(chrome, url)
+
 			html, _ := wd.ExecuteScript("return document.documentElement.outerHTML", nil)
-			job := getInfo(html.(string), url)
+			job := getInfo(html.(string))
+			job.Url = url
 
-			wd.CloseWindow(handle[1])
-			wd.SwitchWindow(handle[0])
-			fmt.Print(time.Since(t), "|")
+			jobJson, _ := json.Marshal(job)
+			if err := producer.Publish("jobs", jobJson); err != nil {
+				log.Fatal("publish error: " + err.Error())
+			}
 
-			fmt.Println(pageNum, job.Name)
+			wd.CloseWindow(handles[1])
+			wd.SwitchWindow(handles[0])
+			fmt.Println(time.Since(t), "|", pageNum, job.Name)
 		}
 		pageNum++
 		if pageNum <= lastPage {
 			url = baseUrl + fmt.Sprintf("/pn%d", pageNum)
 			wd.Get(url)
 			antiBotClickCheck(chrome, url)
-		} else {
-			nextJobType(chrome)
-			pageNum = firstPage
 		}
-
 	}
 
 }
 
-func nextJobType(chrome utils.ChromeSerADri) {
+func allJobTypes(chrome utils.ChromeSerADri) []string {
+	showjobs := chrome.WaitAndFindOne("div.crumb_item.slide_item", 2, 1)
+	showjobs.Click()
 
+	joblist, _ := chrome.Webdriver.FindElement(selenium.ByCSSSelector, "div.jobcatebox")
+
+	typese, _ := joblist.FindElements(selenium.ByCSSSelector, "a.catename")
+	types := []string{}
+
+	for i := 0; i < len(typese); i++ {
+		cln, _ := typese[i].GetAttribute("cln")
+		types = append(types, cln)
+	}
+
+	showjobs.Click()
+
+	return types
+}
+
+var producer *nsq.Producer
+
+func init() {
+	cfg := nsq.NewConfig()
+	var err error
+	producer, err = nsq.NewProducer("localhost:4150", cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
-
-	// chrome := utils.InitClientByRemote("http://172.17.0.2:4444")
-	// wd := chrome.Webdriver
-	// defer wd.Quit()
 
 	allCitys := []string{
 		"bj", "sh", "gz", "sz", "cd", "hz", "nj", "tj", "wh", "cq", "hf", "wuhu", "bengbu", "fy", "hn", "anqing", "fz", "xm", "qz", "pt", "zhangzhou", "gz",
@@ -217,7 +257,11 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	for city := 0; city < 1; city++ {
+	firstPage := 0
+	pageNumForEachJobType := 1
+
+	// 遍历所有城市
+	for city := 0; city < len(allCitys); city++ {
 
 		chrome := utils.InitClientByDriver("./chromedriver", 8080+city, false)
 		wd := chrome.Webdriver
@@ -229,11 +273,26 @@ func main() {
 			url := "https://" + allCitys[city] + ".58.com/zplvyoujiudian"
 			wd.Get(url)
 			antiBot(chrome, url)
-			visitJobUrl(chrome, url, first, last)
+			types := allJobTypes(chrome)
+
+			// 遍历所有工作种类
+			for i := 1; i < len(types); i++ {
+				visitJobUrl(chrome, url, first, last)
+				// time.Sleep(2 * time.Second)
+				url = "https://" + allCitys[city] + ".58.com/" + types[i]
+				wd.Get(url)
+				fmt.Println(url)
+				antiBotClickCheck(chrome, url)
+			}
+
 			wg.Done()
-		}(0, 1)
-		time.Sleep(5 * time.Second)
+		}(firstPage, firstPage+pageNumForEachJobType)
+
+		time.Sleep(10 * time.Second)
+
+		if city%2 == 0 {
+			wg.Wait()
+		}
 	}
 
-	wg.Wait()
 }
