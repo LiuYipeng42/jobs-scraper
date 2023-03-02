@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	// "encoding/json"
+	"encoding/json"
 	"fmt"
 	"log"
 	"pojo"
@@ -94,12 +94,12 @@ func saveJobInfo(chrome utils.ChromeSerADri, firstCity, lastCity int) {
 		for _, job := range jobs {
 			html, _ := job.GetAttribute("outerHTML")
 			job := getInfo(html)
-			fmt.Println(job.Name)
+			// fmt.Println(job.Name)
 
-			// jobJson, _ := json.Marshal(job)
-			// if err := producer.Publish("jobs", jobJson); err != nil {
-			// 	log.Fatal("publish error: " + err.Error())
-			// }
+			jobJson, _ := json.Marshal(job)
+			if err := producer.Publish("jobs", jobJson); err != nil {
+				log.Fatal("publish error: " + err.Error())
+			}
 
 		}
 
