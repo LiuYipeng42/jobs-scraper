@@ -4,12 +4,14 @@ go 1.20
 
 replace utils => ./utils
 
-replace pojo => ./pojo
+replace job => ./job
 
+replace task => ./task
 require (
 	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/tebeka/selenium v0.9.9
-	pojo v0.0.0-00010101000000-000000000000
+	job v0.0.0-00010101000000-000000000000
+	task v0.0.0-00010101000000-000000000000
 	utils v0.0.0-00010101000000-000000000000
 )
 
