@@ -14,9 +14,8 @@ type Server struct {
 	ip    string
 	port  string
 	taskTopic string
-	statusTopic string
 	task  task.Task
-	msg   chan string
+	result   chan task.Result
 }
 
 var describes []task.TaskDes
@@ -40,13 +39,40 @@ func init() {
 	}
 
 	servers = []Server{
-		{"localhost", "4150", "task1", "status1", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan string)},
-		{"120.77.177.229", "4150", "task2", "status2", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan string)},
+		{"localhost", "4150", "task_queue1", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan task.Result)},
+		{"120.77.177.229", "4150", "task_queue2", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan task.Result)},
 	}
 }
 
-func taskStatus(server Server) {
+// receive result from server
+func resultConsumer() {
 
+	consumer, err := nsq.NewConsumer("result_queue", "result", nsq.NewConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
+	// 设置消息处理函数
+	consumer.AddHandler(nsq.HandlerFunc(resultHandle))
+	// 连接到单例nsqd
+	if err := consumer.ConnectToNSQD("localhost:4150"); err != nil {
+		log.Fatal(err)
+	}
+	<-consumer.StopChan
+
+}
+
+func resultHandle(message *nsq.Message) error {
+	
+	r := task.Result{}
+	json.Unmarshal(message.Body, &r)
+
+	for i := 0; i < len(servers); i++ {
+		if servers[i].ip == r.ServerIP {
+			servers[i].result <- r
+		}
+	}
+
+	return nil
 }
 
 func sendTask(server Server, producer nsq.Producer) {
@@ -62,11 +88,16 @@ func sendTask(server Server, producer nsq.Producer) {
 		log.Fatal("publish error: " + err.Error())
 	}
 
-	msg := <-server.msg
+	result := <-server.result
 
 	// handle task that have error
-	if msg != "success" {
-
+	if result.Err {
+		desLock.Lock()
+		des := task.TaskDes{
+			CityId: result.CityId, TypeStart: result.ErrorType, PageStart: result.ErrorPage, PageEnd: result.EndPage,
+		}
+		describes = append(describes, des)
+		desLock.Unlock()
 	}
 }
 

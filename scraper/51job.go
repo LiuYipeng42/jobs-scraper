@@ -135,20 +135,20 @@ func parser(html string) (j job.Job) {
 	return
 }
 
-func sendJobData(chrome utils.ChromeSerADri, producer *nsq.Producer, des task.TaskDes) {
+func sendJobData(chrome utils.ChromeSerADri, jobProducer *nsq.Producer, resultProducer *nsq.Producer, des task.TaskDes) {
 
+	jobType := des.TypeStart
+	page := des.PageStart
 	// send error msg
-	defer func() {
-
-	}()
+	defer sendResult(resultProducer, des, jobType, page)
 
 	chrome.Webdriver.Get("https://we.51job.com/pc/search")
 
 	switchCity(chrome, des.CityId)
-
-	for jobType := des.TypeStart; jobType < 75; jobType++ {
+	
+	for ; jobType < 75; jobType++ {
 		switchJobType(chrome, jobType)
-		for page := des.PageStart; page < des.PageEnd; page++ {
+		for ; page < des.PageEnd; page++ {
 			jobs := chrome.WaitAndFindAll("div.j_joblist>div[sensorsname]", 5)
 			fmt.Printf("city: %d, type: %d page: %d jobs: %d\n", des.CityId, jobType, page, len(jobs))
 	
@@ -158,7 +158,7 @@ func sendJobData(chrome utils.ChromeSerADri, producer *nsq.Producer, des task.Ta
 				fmt.Println(job.Name)
 	
 				jobJson, _ := json.Marshal(job)
-				if err := producer.Publish("jobs", jobJson); err != nil {
+				if err := jobProducer.Publish("jobs", jobJson); err != nil {
 					log.Fatal("publish error: " + err.Error())
 				}
 			}
@@ -172,19 +172,39 @@ func sendJobData(chrome utils.ChromeSerADri, producer *nsq.Producer, des task.Ta
 	}
 }
 
+func sendResult(producer *nsq.Producer, des task.TaskDes, currentType, currentPage int) {
+	res := task.Result{
+		ServerIP: "120.77.177.229",
+		CityId: des.CityId,
+		ErrorType: currentType,
+		ErrorPage: currentPage,
+		EndPage: des.PageEnd,
+		Err: true,
+	}
+
+	if currentType == 74 && currentPage == des.PageEnd {
+		res.Err =false
+	}
+
+	resJson, _ := json.Marshal(res)
+	if err := producer.Publish("result_queue", resJson); err != nil {
+		log.Fatal("publish error: " + err.Error())
+	}
+}
+
 func startConsumer(topic, channel string) {
 	consumer, err := nsq.NewConsumer(topic, channel, nsq.NewConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
-	consumer.AddHandler(nsq.HandlerFunc(handler))
+	consumer.AddHandler(nsq.HandlerFunc(taskHandler))
 	if err := consumer.ConnectToNSQD("localhost:4150"); err != nil {
 		log.Fatal(err)
 	}
 	<-consumer.StopChan
 }
 
-func handler(message *nsq.Message) error {
+func taskHandler(message *nsq.Message) error {
 
 	var wg sync.WaitGroup
 	t := task.Task{}
@@ -208,7 +228,12 @@ func handler(message *nsq.Message) error {
 
 func startScrape(j task.TaskDes) {
 
-	producer, err := nsq.NewProducer("localhost:4150", nsq.NewConfig())
+	jobProducer, err := nsq.NewProducer("localhost:4150", nsq.NewConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resultProducer, err := nsq.NewProducer("192.168.210.94:4150", nsq.NewConfig())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -217,7 +242,7 @@ func startScrape(j task.TaskDes) {
 	defer chrome.Service.Stop()
 	defer chrome.Webdriver.Quit()
 
-	sendJobData(chrome, producer, j)
+	sendJobData(chrome, jobProducer, resultProducer, j)
 }
 
 func main() {
