@@ -2,13 +2,13 @@ package task
 
 
 type Task struct {
-	Jobs []Job
+	Describe []TaskDes
 	Goroutines int
 }
 
-type Job struct {
-	TypeId int
+type TaskDes struct {
 	CityId int
+	TypeStart int
 	PageStart int
 	PageEnd int
 }

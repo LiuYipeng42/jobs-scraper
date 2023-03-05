@@ -19,20 +19,20 @@ type Server struct {
 	msg   chan string
 }
 
-var jobs []task.Job
+var describes []task.TaskDes
 
 var servers []Server
 
-var jobsLock sync.Mutex
+var desLock sync.Mutex
 
 func init() {
 	// 26 citys
 	for i := 0; i < 26; i++ {
-		jobs = append(
-			jobs,
-			task.Job{
-				TypeId: 0,
+		describes = append(
+			describes,
+			task.TaskDes{
 				CityId: i,
+				TypeStart: 0,
 				PageStart: 0,
 				PageEnd: 1,
 			},
@@ -40,8 +40,8 @@ func init() {
 	}
 
 	servers = []Server{
-		{"localhost", "4150", "task1", "status1", task.Task{Jobs: make([]task.Job, 2), Goroutines: 2}, make(chan string)},
-		{"120.77.177.229", "4150", "task2", "status2", task.Task{Jobs: make([]task.Job, 2), Goroutines: 2}, make(chan string)},
+		{"localhost", "4150", "task1", "status1", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan string)},
+		{"120.77.177.229", "4150", "task2", "status2", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan string)},
 	}
 }
 
@@ -50,12 +50,12 @@ func taskStatus(server Server) {
 }
 
 func sendTask(server Server, producer nsq.Producer) {
-	jobsLock.Lock()
-	for i := 0; i < server.task.Goroutines && len(jobs) > 0; i++ {
-		server.task.Jobs[i] = jobs[0]
-		jobs = jobs[1:]
+	desLock.Lock()
+	for i := 0; i < server.task.Goroutines && len(describes) > 0; i++ {
+		server.task.Describe[i] = describes[0]
+		describes = describes[1:]
 	}
-	jobsLock.Unlock()
+	desLock.Unlock()
 
 	taskJson, _ := json.Marshal(server.task)
 	if err := producer.Publish(server.taskTopic, taskJson); err != nil {
