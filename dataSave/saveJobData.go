@@ -61,45 +61,48 @@ func process(message *nsq.Message) error {
 	j := job.Job{}
 	json.Unmarshal(message.Body, &j)
 
-	var jobs []job.Job
-	if db.Select(&jobs, selectJobSql, j.Name, j.Position, j.CName); err != nil {
-		return err
-	}
-	if len(jobs) > 0 {
-		for i := 0; i < len(jobs); i++ {
-			fmt.Println("exist job: ", jobs[i].Id, j.Name, j.CName)
-			if j.Url == jobs[i].Url {
-				r, err := db.Exec(updateJobSql, j.Salary, j.Experience, j.Experience, j.Tags, j.Describe, jobs[i].Id)
-				if err != nil {
-					fmt.Println(r, err)
-				}
-			}
-		}
-	} else {
-		var company []job.Company
-		db.Select(&company, selectCompanySql, j.CName)
-		var cid int64
-		if len(company) == 0 {
-			r, _ := db.Exec(insertCompanySql, j.CName, j.CType, j.CSize, j.MainBusiness, j.CDescribe)
-			if r != nil {
-				cid, _ = r.LastInsertId()
-				fmt.Println("insert company:", cid, j.CName)
-			}
-		} else {
-			cid = int64(company[0].CId)
-			fmt.Println("exist company:", cid, j.CName)
-		}
+	fmt.Println(j)
 
-		var jid int64
-		r, _ := db.Exec(insertJobSql, j.CName, j.Salary, j.Position, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, cid)
-		if r != nil {
-			jid, _ = r.LastInsertId()
-		} else {
-			fmt.Println(err)
-		}
-		fmt.Println("insert job: ", jid, j.Name, j.CName)
+	// var jobs []job.Job
+	// if db.Select(&jobs, selectJobSql, j.Name, j.Position, j.CName); err != nil {
+	// 	return err
+	// }
 
-	}
+	// if len(jobs) > 0 {
+	// 	for i := 0; i < len(jobs); i++ {
+	// 		fmt.Println("exist job: ", jobs[i].Id, j.Name, j.CName)
+	// 		if j.Url == jobs[i].Url {
+	// 			r, err := db.Exec(updateJobSql, j.Salary, j.Experience, j.Experience, j.Tags, j.Describe, jobs[i].Id)
+	// 			if err != nil {
+	// 				fmt.Println(r, err)
+	// 			}
+	// 		}
+	// 	}
+	// } else {
+	// 	var company []job.Company
+	// 	db.Select(&company, selectCompanySql, j.CName)
+	// 	var cid int64
+	// 	if len(company) == 0 {
+	// 		r, _ := db.Exec(insertCompanySql, j.CName, j.CType, j.CSize, j.MainBusiness, j.CDescribe)
+	// 		if r != nil {
+	// 			cid, _ = r.LastInsertId()
+	// 			fmt.Println("insert company:", cid, j.CName)
+	// 		}
+	// 	} else {
+	// 		cid = int64(company[0].CId)
+	// 		fmt.Println("exist company:", cid, j.CName)
+	// 	}
+
+	// 	var jid int64
+	// 	r, _ := db.Exec(insertJobSql, j.CName, j.Salary, j.Position, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, cid)
+	// 	if r != nil {
+	// 		jid, _ = r.LastInsertId()
+	// 	} else {
+	// 		fmt.Println(err)
+	// 	}
+	// 	fmt.Println("insert job: ", jid, j.Name, j.CName)
+
+	// }
 
 	return nil
 }
