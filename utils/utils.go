@@ -62,7 +62,7 @@ func InitClientByDriver(driverPath string, port int, headless bool) ChromeSerADr
 
 	args := []string{}
 	if headless {
-		args = []string{"--headless"}
+		args = []string{"--headless", "window-size=1920x1080", "--start-maximized"}
 	}
 	args = append(args, "--disable-blink-features=AutomationControlled")
 
@@ -89,7 +89,7 @@ func InitClientByRemote(url string) ChromeSerADri {
 		"profile.managed_default_content_settings.images": 2,
 	}
 
-	args := []string{}
+	args := []string{"window-size=1920x1080", "--start-maximized"}
 	args = append(args, "--disable-blink-features=AutomationControlled")
 
 	chromeCaps := chrome.Capabilities{

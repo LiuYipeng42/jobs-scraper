@@ -10,6 +10,8 @@ import (
 	"sync"
 	"task"
 	"time"
+
+	// "time"
 	"utils"
 
 	"github.com/nsqio/go-nsq"
@@ -41,9 +43,10 @@ func switchCity(chrome utils.ChromeSerADri, city int) {
 
 }
 
-func switchJobType(chrome utils.ChromeSerADri, jobId int) {
+func switchJobType(chrome utils.ChromeSerADri, typeId int) string {
 
 	selectType := chrome.WaitAndFindOne("div.e_e.e_com", 10, 1)
+	selectType.Click()
 	selectType.Click()
 
 	fliter := chrome.WaitAndFindOne("div.j_filter", 5, 1)
@@ -51,8 +54,12 @@ func switchJobType(chrome utils.ChromeSerADri, jobId int) {
 	table := tables[1]
 
 	// 清除已有的 tag
-	tagTbale, _ := table.FindElement(selenium.ByCSSSelector, "div.tags-text")
-	time.Sleep(1 * time.Second)
+	var tagTbale selenium.WebElement
+	for tagTbale == nil {
+		tagTbale, _ = table.FindElement(selenium.ByCSSSelector, "div.tags-text")
+		time.Sleep(1 * time.Second)
+	}
+
 	tags, _ := tagTbale.FindElements(selenium.ByCSSSelector, "span>i")
 	for i := 0; i < len(tags); i++ {
 		tags[i].Click()
@@ -66,14 +73,14 @@ func switchJobType(chrome utils.ChromeSerADri, jobId int) {
 
 	var tab selenium.WebElement
 	var panel selenium.WebElement
-	relativeId := jobId
+	relativeId := typeId
 
 	for i := 0; i < len(tabLen); i++ {
-		if jobId-tabLen[i] < 0 {
+		if typeId-tabLen[i] < 0 {
 			tab = tabList[i]
 			panel = panelList[i]
 			if i > 0 {
-				relativeId = jobId - tabLen[i-1]
+				relativeId = typeId - tabLen[i-1]
 			}
 			break
 		}
@@ -82,6 +89,7 @@ func switchJobType(chrome utils.ChromeSerADri, jobId int) {
 	tab.Click()
 	jobTypes, _ := panel.FindElements(selenium.ByCSSSelector, "div.table-body-tr-td>span")
 	jobTypes[relativeId].Click()
+	jobType, _ := jobTypes[relativeId].Text()
 	all, _ := panel.FindElement(selenium.ByCSSSelector, "div.clickAll>span")
 	all.Click()
 	yes, _ := table.FindElement(selenium.ByCSSSelector, "div.el-dialog__footer>span")
@@ -89,12 +97,15 @@ func switchJobType(chrome utils.ChromeSerADri, jobId int) {
 	search, _ := chrome.Webdriver.FindElement(selenium.ByCSSSelector, "button#search_btn")
 	search.Click()
 
+	return jobType
 }
 
 func parser(html string) (j job.Job) {
 
 	name := utils.RegExpFindOne(html, "title=.*?class=\"jname at\"")
-	j.Name = name[7 : len(name)-18]
+	if len(name) > 18 {
+		j.Name = name[7 : len(name)-18]
+	}
 
 	jobInfo := strings.Split(utils.RegExpFindOne(html, "class=\"info\">.*?</p>"), "<span")
 	j.Salary = jobInfo[1][32 : len(jobInfo[1])-7]
@@ -137,26 +148,33 @@ func parser(html string) (j job.Job) {
 
 func sendJobData(chrome utils.ChromeSerADri, jobProducer *nsq.Producer, resultProducer *nsq.Producer, des task.TaskDes) {
 
-	jobType := des.TypeStart
+	typeId := des.TypeStart
 	page := des.PageStart
 	// send error msg
-	defer sendResult(resultProducer, des, jobType, page)
+	defer func() {
+		sendResult(resultProducer, des, typeId, page)
+		err := recover()
+		fmt.Println(err)
+	}()
 
 	chrome.Webdriver.Get("https://we.51job.com/pc/search")
 
+	fmt.Println("start task: ", des)
+
 	switchCity(chrome, des.CityId)
 
-	for ; jobType < 75; jobType++ {
-		switchJobType(chrome, jobType)
+	for ; typeId < 75; typeId++ {
+
+		jobType := switchJobType(chrome, typeId)
+		page = 0
 		for ; page < des.PageEnd; page++ {
 			jobs := chrome.WaitAndFindAll("div.j_joblist>div[sensorsname]", 5)
-			fmt.Printf("city: %d, type: %d page: %d jobs: %d\n", des.CityId, jobType, page, len(jobs))
+			fmt.Printf("city: %d, typeId: %d, type:%s page: %d jobs: %d\n", des.CityId, typeId, jobType, page, len(jobs))
 
 			for _, job := range jobs {
 				html, _ := job.GetAttribute("outerHTML")
 				job := parser(html)
-				fmt.Println(job.Name)
-
+				job.Type = jobType
 				jobJson, _ := json.Marshal(job)
 				if err := jobProducer.Publish("jobs", jobJson); err != nil {
 					log.Fatal("publish error: " + err.Error())
@@ -174,7 +192,7 @@ func sendJobData(chrome utils.ChromeSerADri, jobProducer *nsq.Producer, resultPr
 
 func sendResult(producer *nsq.Producer, des task.TaskDes, currentType, currentPage int) {
 	res := task.Result{
-		ServerIP:  "192.168.210.179",
+		ServerIP:  "192.168.210.200",
 		CityId:    des.CityId,
 		ErrorType: currentType,
 		ErrorPage: currentPage,
@@ -240,13 +258,7 @@ func startScrape(j task.TaskDes) {
 		log.Fatal(err)
 	}
 
-	jobJson, _ := json.Marshal(job.Job{Id: 42, Name: "test"})
-	if err := jobProducer.Publish("jobs", jobJson); err != nil {
-		log.Fatal("publish error: " + err.Error())
-	}
-
 	chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
-	defer chrome.Service.Stop()
 	defer chrome.Webdriver.Quit()
 
 	sendJobData(chrome, jobProducer, resultProducer, j)
@@ -254,11 +266,16 @@ func startScrape(j task.TaskDes) {
 }
 
 func main() {
-	startConsumer("task_queue2", "task_channel")
+	startConsumer("task_queue", "task_channel")
 
+	// chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
 	// chrome := utils.InitClientByDriver("./chromedriver", 8080, false)
-	// defer chrome.Webdriver.Close()
+	// defer chrome.Webdriver.Quit()
 	// defer chrome.Service.Stop()
 
-	// sendJobData(chrome, nil, task.Job{CityId: 0, TypeId: 1, PageStart: 0, PageEnd: 1})
+	// chrome.Webdriver.Get("https://we.51job.com/pc/search")
+	// fmt.Println(switchJobType(chrome, 41))
+	
+
+	// sendJobData(chrome, nil, nil, task.TaskDes{CityId: 3, TypeStart: 0, PageStart: 0, PageEnd: 1})
 }

@@ -39,12 +39,17 @@ func init() {
 	}
 
 	servers = []Server{
-		// {"localhost", "4150", "task_queue1", task.Task{Describe: make([]task.TaskDes, 2), Goroutines: 2}, make(chan task.Result)},
+		// {
+		// 	ip:        "192.168.210.253",
+		// 	taskTopic: "task_queue",
+		// 	task:      task.Task{Describe: make([]task.TaskDes, 4), Goroutines: 2},
+		// 	result:    make(chan task.Result, 4),
+		// },
 		{
-			ip:        "192.168.210.179",
-			taskTopic: "task_queue2",
+			ip:        "192.168.210.200",
+			taskTopic: "task_queue",
 			task:      task.Task{Describe: make([]task.TaskDes, 4), Goroutines: 2},
-			result:    make(chan task.Result, 2),
+			result:    make(chan task.Result, 4),
 		},
 	}
 }
@@ -97,7 +102,7 @@ func taskDispatch() {
 func sendTask(server Server) {
 
 	desLock.Lock()
-	for i := 0; i < server.task.Goroutines; i++ {
+	for i := 0; i < len(server.task.Describe); i++ {
 		if len(describes) > 0 {
 			server.task.Describe[i] = describes[0]
 			describes = describes[1:]
