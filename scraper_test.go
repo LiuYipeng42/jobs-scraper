@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+
 	"os"
 	"strings"
 	"testing"
 	"utils"
 
 	"github.com/PuerkitoBio/goquery"
+
 )
 
 func TestGoquery(t *testing.T) {
@@ -24,7 +26,7 @@ func TestGoquery(t *testing.T) {
 
 // go test --run=TestRe
 func TestRe(t *testing.T) {
-	content, err := os.ReadFile("../mainPage.html")
+	content, err := os.ReadFile("../jobPage.html")
 	if err != nil {
 		panic(err)
 	}
@@ -32,7 +34,7 @@ func TestRe(t *testing.T) {
 
 	html := string(content)
 
-	data := utils.RegExpFindOne(html, "<a .*? href=\".*?\" target=\"_blank\" class=\"el\">")
-	fmt.Println(data[strings.Index(data, "https") : len(data)-29])
+	data := utils.RegExpFindOne(html, "<div class=\"bmsg job_msg inbox\">(?:.|\n)*?</div>")
+	fmt.Println(data)
 
 }

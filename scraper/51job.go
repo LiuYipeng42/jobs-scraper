@@ -11,7 +11,6 @@ import (
 	"task"
 	"time"
 
-	// "time"
 	"utils"
 
 	"github.com/nsqio/go-nsq"
@@ -135,9 +134,9 @@ func parser(html string) (j job.Job) {
 
 	companyInfo := utils.RegExpFindOne(html, "class=\"dc at\">.*?</p>")
 	CInfo := strings.Split(companyInfo[14:len(companyInfo)-4], " | ")
-	j.Company.CType = CInfo[0]
+	j.Company.CType = strings.ReplaceAll(CInfo[0], " ", "")
 	if len(CInfo) > 1 {
-		j.Company.CSize = CInfo[1]
+		j.Company.CSize = strings.ReplaceAll(CInfo[1], " ", "")
 	}
 
 	business := utils.RegExpFindOne(html, "class=\"int at\">.*?</p>")
@@ -146,20 +145,20 @@ func parser(html string) (j job.Job) {
 	return
 }
 
-func sendJobData(chrome utils.ChromeSerADri, jobProducer *nsq.Producer, resultProducer *nsq.Producer, des task.TaskDes) {
+func sendJobData(chrome utils.ChromeSerADri, des task.TaskDes) {
 
 	typeId := des.TypeStart
 	page := des.PageStart
 	// send error msg
 	defer func() {
-		sendResult(resultProducer, des, typeId, page)
+		sendResult(des, typeId, page)
 		err := recover()
-		fmt.Println(err)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}()
 
 	chrome.Webdriver.Get("https://we.51job.com/pc/search")
-
-	fmt.Println("start task: ", des)
 
 	switchCity(chrome, des.CityId)
 
@@ -176,23 +175,28 @@ func sendJobData(chrome utils.ChromeSerADri, jobProducer *nsq.Producer, resultPr
 				job := parser(html)
 				job.Type = jobType
 				jobJson, _ := json.Marshal(job)
+
+				jpMutex.Lock()
 				if err := jobProducer.Publish("jobs", jobJson); err != nil {
 					log.Fatal("publish error: " + err.Error())
 				}
+				jpMutex.Unlock()
 			}
 
-			input := chrome.WaitAndFindOne("input#jump_page", 2, 1)
-			input.Clear()
-			input.SendKeys(fmt.Sprintf("%d", page+1))
-			button, _ := chrome.Webdriver.FindElement(selenium.ByCSSSelector, "span.jumpPage")
-			button.Click()
+			if len(jobs) >= 50 {
+				input := chrome.WaitAndFindOne("input#jump_page", 2, 1)
+				input.Clear()
+				input.SendKeys(fmt.Sprintf("%d", page+1))
+				button, _ := chrome.Webdriver.FindElement(selenium.ByCSSSelector, "span.jumpPage")
+				button.Click()
+			}
 		}
 	}
 }
 
-func sendResult(producer *nsq.Producer, des task.TaskDes, currentType, currentPage int) {
+func sendResult(des task.TaskDes, currentType, currentPage int) {
 	res := task.Result{
-		ServerIP:  "192.168.210.200",
+		ServerIP:  "localhost",
 		CityId:    des.CityId,
 		ErrorType: currentType,
 		ErrorPage: currentPage,
@@ -200,15 +204,17 @@ func sendResult(producer *nsq.Producer, des task.TaskDes, currentType, currentPa
 		Err:       true,
 	}
 
-	if currentType == 74 && currentPage == des.PageEnd {
+	if currentType >= 74 && currentPage == des.PageEnd {
 		res.Err = false
 	}
 
 	fmt.Println("send result: ", res)
 	resJson, _ := json.Marshal(res)
-	if err := producer.Publish("result_queue", resJson); err != nil {
+	rpMutex.Lock()
+	if err := resultProducer.Publish("result_queue", resJson); err != nil {
 		log.Fatal("publish error: " + err.Error())
 	}
+	rpMutex.Unlock()
 }
 
 func startConsumer(topic, channel string) {
@@ -225,15 +231,22 @@ func startConsumer(topic, channel string) {
 
 func taskHandler(message *nsq.Message) error {
 
-	var wg sync.WaitGroup
 	t := task.Task{}
 	json.Unmarshal(message.Body, &t)
 	fmt.Println("receive task: ", t)
 
 	// each goroutine a task describe
+	go startTask(t)
+
+	return nil
+}
+
+func startTask(t task.Task) {
+	var wg sync.WaitGroup
 	for i := 0; i < len(t.Describe); i++ {
 		wg.Add(1)
 		go func(j task.TaskDes) {
+			fmt.Println("start task: ", j)
 			startScrape(j)
 			wg.Done()
 		}(t.Describe[i])
@@ -242,40 +255,48 @@ func taskHandler(message *nsq.Message) error {
 			wg.Wait()
 		}
 	}
+}
 
-	return nil
+var jobProducer *nsq.Producer
+var jpMutex sync.Mutex
+var resultProducer *nsq.Producer
+var rpMutex sync.Mutex
+
+func init() {
+	var err error
+	jobProducer, err = nsq.NewProducer("192.168.210.94:4150", nsq.NewConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resultProducer, err = nsq.NewProducer("192.168.210.94:4150", nsq.NewConfig())
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func startScrape(j task.TaskDes) {
 
-	jobProducer, err := nsq.NewProducer("120.77.177.229:4150", nsq.NewConfig())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	resultProducer, err := nsq.NewProducer("192.168.210.94:4150", nsq.NewConfig())
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
 	defer chrome.Webdriver.Quit()
 
-	sendJobData(chrome, jobProducer, resultProducer, j)
+	sendJobData(chrome, j)
 
 }
 
-func main() {
+func get51Job() {
 	startConsumer("task_queue", "task_channel")
-
-	// chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
-	// chrome := utils.InitClientByDriver("./chromedriver", 8080, false)
-	// defer chrome.Webdriver.Quit()
-	// defer chrome.Service.Stop()
-
-	// chrome.Webdriver.Get("https://we.51job.com/pc/search")
-	// fmt.Println(switchJobType(chrome, 41))
-	
-
-	// sendJobData(chrome, nil, nil, task.TaskDes{CityId: 3, TypeStart: 0, PageStart: 0, PageEnd: 1})
 }
+
+// func main() {
+// 	
+// 	// chrome := utils.InitClientByRemote("http://localhost:4444/wd/hub")
+// 	// chrome := utils.InitClientByDriver("./chromedriver", 8080, false)
+// 	// defer chrome.Webdriver.Quit()
+// 	// defer chrome.Service.Stop()
+
+// 	// chrome.Webdriver.Get("https://we.51job.com/pc/search")
+// 	// fmt.Println(switchJobType(chrome, 41))
+
+// 	// sendJobData(chrome, nil, nil, task.TaskDes{CityId: 3, TypeStart: 0, PageStart: 0, PageEnd: 1})
+// }

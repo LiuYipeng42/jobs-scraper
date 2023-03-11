@@ -15,32 +15,34 @@ import (
 var db *sqlx.DB
 var err error
 
-var selectCompanySql string
-var selectJobSql string
-var updateJobSql string
-var insertCompanySql string
-var insertJobSql string
+var selectJob string
+var updateJob string
+var insertJob string
+var selectCompany string
+var updateCompany string
+var insertCompany string
 
 func init() {
-	db, err = sqlx.Open("mysql", "root:121522734a@tcp(localhost:3306)/jobs1")
+	db, err = sqlx.Open("mysql", "root:121522734a@tcp(localhost:3306)/jobs")
 	if err != nil {
 		fmt.Println("open mysql failed,", err)
 		return
 	}
 
-	selectCompanySql = "select id as cid from companys where name = ?"
+	selectCompany = "select id as cid from companys where name = ?"
 
 	var buffer bytes.Buffer
-	buffer.WriteString("select j.id, j.name, position, c.name as cname ")
-	buffer.WriteString("from jobs j left join companys c on j.company_id = c.id ")
-	buffer.WriteString("where j.name = ? and j.position = ? and cname = ?")
-	selectJobSql = buffer.String()
+	buffer.WriteString("select id, company_id as cid from jobs where ")
+	buffer.WriteString("name=? and type=? and salary=? and position=? and experience=? and degree=?")
+	selectJob = buffer.String()
 
-	updateJobSql = "update jobs set salary=? experience=? degree=? tags=? describe=? where id = ?"
+	updateJob = "update jobs set tags=?, `describe`=? where id=?"
 
-	insertCompanySql = "insert into companys (name, type, size, main_business, `describe`) values (?, ?, ?, ?, ?)"
+	updateCompany = "update companys set type=?, size=?, main_business=?, describe where id=?"
 
-	insertJobSql = "insert into jobs (name, type, salary, position, experience, degree, tags, `describe`, url, company_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	insertCompany = "insert into companys (name, type, size, main_business, `describe`) values (?, ?, ?, ?, ?)"
+
+	insertJob = "insert into jobs (name, type, salary, position, experience, degree, tags, `describe`, url, company_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 }
 
 func startConsumer(channel string) {
@@ -61,47 +63,48 @@ func process(message *nsq.Message) error {
 	j := job.Job{}
 	json.Unmarshal(message.Body, &j)
 
-	// fmt.Println(j)
-
+	// fmt.Println(j.Name)
 	var jobs []job.Job
-	if db.Select(&jobs, selectJobSql, j.Name, j.Position, j.CName); err != nil {
+	if err = db.Select(&jobs, selectJob, j.Name, j.Type, j.Salary, j.Position, j.Experience, j.Degree); err != nil {
+		return err
+	}
+	var company []job.Company
+	if err = db.Select(&company, selectCompany, j.CName); err != nil {
 		return err
 	}
 
-	if len(jobs) > 0 {
-		for i := 0; i < len(jobs); i++ {
-			fmt.Println("exist job: ", jobs[i].Id, j.Name, j.CName)
-			if j.Url == jobs[i].Url {
-				r, err := db.Exec(updateJobSql, j.Salary, j.Experience, j.Experience, j.Tags, j.Describe, jobs[i].Id)
-				if err != nil {
-					fmt.Println(r, err)
+	// exist company
+	if len(company) > 0 {
+		fmt.Println("update company: ", j.CName)
+		db.Exec(updateCompany, company[0].CType, company[0].CSize, company[0].MainBusiness, company[0].CId)
+
+		if len(jobs) > 0 {
+			// exist job
+			for i := 0; i < len(jobs); i++ {
+				if jobs[i].CId == company[0].CId {
+					fmt.Println("update job: ", jobs[i].Id, j.Name, j.CName)
+					if j.Url == jobs[i].Url {
+						_, err := db.Exec(updateJob, j.Tags, j.Describe, jobs[i].Id)
+						if err != nil {
+							fmt.Println(err)
+						}
+					}
 				}
 			}
-		}
-	} else {
-		var company []job.Company
-		db.Select(&company, selectCompanySql, j.CName)
-		var cid int64
-		if len(company) == 0 {
-			r, _ := db.Exec(insertCompanySql, j.CName, j.CType, j.CSize, j.MainBusiness, j.CDescribe)
-			if r != nil {
-				cid, _ = r.LastInsertId()
-				fmt.Println("insert company:", cid, j.CName)
-			}
 		} else {
-			cid = int64(company[0].CId)
-			fmt.Println("exist company:", cid, j.CName)
+			// new job
+			fmt.Println("insert job: ", j.Name, j.CName)
+			db.Exec(insertJob, j.Name, j.Type, j.Salary, j.Position, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, company[0].CId)
 		}
+	}
 
-		var jid int64
-		r, _ := db.Exec(insertJobSql, j.Name, j.Type, j.Salary, j.Position, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, cid)
-		if r != nil {
-			jid, _ = r.LastInsertId()
-		} else {
-			fmt.Println(err)
-		}
-		fmt.Println("insert job: ", jid, j.Name, j.Type, j.CName)
-
+	// new job and company
+	if len(company) == 0 {
+		fmt.Println("insert company: ", j.CName)
+		r, _ := db.Exec(insertCompany, j.CName, j.CType, j.CSize, j.MainBusiness, j.CDescribe)
+		cid, _ := r.LastInsertId()
+		fmt.Println("insert job: ", j.Name, j.CName)
+		db.Exec(insertJob, j.Name, j.Type, j.Salary, j.Position, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, cid)
 	}
 
 	return nil

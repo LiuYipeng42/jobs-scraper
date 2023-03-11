@@ -5,7 +5,7 @@ import "fmt"
 type Job struct {
 	Id         int    `db:"id"`
 	Name       string `db:"name"`
-	Type string `db:"type"`
+	Type       string `db:"type"`
 	Salary     string `db:"salary"`
 	Position   string `db:"position"`
 	Experience string `db:"experience"`
@@ -22,4 +22,3 @@ func (j Job) String() string {
 		j.Id, j.Name, j.Type, j.Salary, j.Position, j.Experience, j.Degree, j.Tags, j.Describe, j.Url, j.Company,
 	)
 }
-

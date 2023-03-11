@@ -15,6 +15,7 @@ type Server struct {
 	port      string
 	taskTopic string
 	task      task.Task
+	maxDes    int
 	result    chan task.Result
 }
 
@@ -26,30 +27,32 @@ var desLock sync.Mutex
 
 func init() {
 	// 26 citys
-	for i := 0; i < 26; i++ {
+	for i := 0; i < 8; i++ {
 		describes = append(
 			describes,
 			task.TaskDes{
 				CityId:    i,
 				TypeStart: 0,
 				PageStart: 0,
-				PageEnd:   1,
+				PageEnd:   2,
 			},
 		)
 	}
 
 	servers = []Server{
-		// {
-		// 	ip:        "192.168.210.253",
-		// 	taskTopic: "task_queue",
-		// 	task:      task.Task{Describe: make([]task.TaskDes, 4), Goroutines: 2},
-		// 	result:    make(chan task.Result, 4),
-		// },
+		{
+			ip:        "192.168.210.253",
+			taskTopic: "task_queue",
+			task:      task.Task{Describe: make([]task.TaskDes, 0), Goroutines: 2},
+			maxDes:    4,
+			result:    make(chan task.Result, 4),
+		},
 		{
 			ip:        "192.168.210.200",
 			taskTopic: "task_queue",
-			task:      task.Task{Describe: make([]task.TaskDes, 4), Goroutines: 2},
-			result:    make(chan task.Result, 4),
+			task:      task.Task{Describe: make([]task.TaskDes, 0), Goroutines: 1},
+			maxDes:    2,
+			result:    make(chan task.Result, 2),
 		},
 	}
 }
@@ -72,10 +75,12 @@ func resultHandle(message *nsq.Message) error {
 	r := task.Result{}
 	json.Unmarshal(message.Body, &r)
 	fmt.Println("consumer receive result: ", r)
+
 	for i := 0; i < len(servers); i++ {
 		if servers[i].ip == r.ServerIP {
 			servers[i].result <- r
 		}
+
 	}
 	return nil
 }
@@ -84,7 +89,7 @@ func taskDispatch() {
 
 	var wg sync.WaitGroup
 
-	for i := 0; ; i++ {
+	for i := 0; len(describes) > 0; i++ {
 
 		wg.Add(1)
 		go func(server Server) {
@@ -97,14 +102,20 @@ func taskDispatch() {
 		}
 	}
 
+	fmt.Println("finish all")
 }
 
 func sendTask(server Server) {
 
 	desLock.Lock()
-	for i := 0; i < len(server.task.Describe); i++ {
+	for i := 0; i < len(describes); i++ {
+		fmt.Print(describes[i].CityId, " ")
+	}
+	fmt.Println()
+	server.task.Describe = make([]task.TaskDes, 0)
+	for i := 0; i < server.maxDes; i++ {
 		if len(describes) > 0 {
-			server.task.Describe[i] = describes[0]
+			server.task.Describe = append(server.task.Describe, describes[0])
 			describes = describes[1:]
 		}
 	}
@@ -125,7 +136,7 @@ func sendTask(server Server) {
 
 	for i := 0; i < len(server.task.Describe); i++ {
 		result := <-server.result
-		fmt.Println("get result: ", result)
+		fmt.Println("get result: ", result, i, len(server.task.Describe))
 		if result.Err {
 			desLock.Lock()
 			des := task.TaskDes{
@@ -133,8 +144,11 @@ func sendTask(server Server) {
 			}
 			describes = append(describes, des)
 			desLock.Unlock()
+		} else {
+			fmt.Println("finish task", result, "task len", len(describes))
 		}
 	}
+	fmt.Println("task len:", len(describes))
 }
 
 func main() {
